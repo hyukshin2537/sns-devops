@@ -3,25 +3,12 @@
 Kind 클러스터 설정, Kubernetes 매니페스트, Helm values를 관리합니다.
 학습자 기준으로 "복붙 가능한 실행 순서 + 검증 포인트"를 먼저 제공합니다.
 
-이 문서는 전체 강의의 최신 실습 안내이며, `main`과 모든 `part-*` 브랜치에서 같은 내용을 사용합니다.
-안내 문서와 실행 스크립트는 처음부터 제공하지만, 아래 설정 파일과 서비스 코드는 해당 단원에서 작성한 뒤 명령을 실행해요.
-완료본을 참고할 때도 현재 단원까지 준비된 파일과 환경에 맞는 명령만 실행하세요.
-
-명령은 별도 표시가 없으면 `sns-devops` 루트 폴더 기준입니다. 설치와 설정은 아래 명령을 직접 실행하고, 08강과 09강의 재현 및 분석에는 스크립트를 사용해요.
-
 ## 1) 사전 준비
 
-macOS는 [Homebrew](https://brew.sh/ko/)를 먼저 설치한 뒤 터미널에서, Windows는 PowerShell에서 아래 명령을 실행하세요.
-Windows에서 `winget`이 없다면 Microsoft Store에서 **앱 설치 관리자**를 설치하면 됩니다.
-
-| 도구 | macOS | Windows |
-| --- | --- | --- |
-| Docker Desktop | [공식 설치 파일](https://docs.docker.com/desktop/setup/install/mac-install/)에서 내 Mac의 칩(Apple Silicon 또는 Intel)에 맞는 파일을 받아 설치하고 실행해요. | [공식 설치 파일](https://docs.docker.com/desktop/setup/install/windows-install/)을 실행하고, WSL 2 사용 옵션을 선택해 설치한 뒤 실행합니다. |
-| `kubectl` | `brew install kubernetes-cli` | `winget install -e --id Kubernetes.kubectl` |
-| `kind` | `brew install kind` | `winget install -e --id Kubernetes.kind` |
-| `helm` | `brew install helm` | `winget install -e --id Helm.Helm` |
-
-설치가 끝나면 터미널을 다시 열고 아래 명령으로 확인해요.
+- Docker Desktop
+- `kubectl`
+- `kind`
+- `helm`
 
 확인 명령:
 
@@ -84,7 +71,7 @@ k8s/
 ├── kind/
 │   ├── kind-config.yaml           # lite 기본 (control-plane only)
 │   └── kind-config-full.yaml      # full (control-plane + 2 workers)
-├── gateway/
+├── ingress/
 │   ├── traefik-values.yaml        # Traefik Helm values (Gateway API provider)
 │   ├── sns-app.yaml               # sns, rustfs HTTPRoute (02강)
 │   ├── monitoring.yaml            # grafana, prometheus HTTPRoute (05강)
@@ -94,20 +81,21 @@ k8s/
 │   ├── argocd-values.yaml         # ArgoCD Helm values
 │   └── application.yaml           # ArgoCD Application CRD
 ├── monitoring/
+│   ├── alertrules.yaml            # PrometheusRule (에러율, 레이턴시, 다운)
 │   ├── alertmanager-values.yaml   # AlertManager Slack 연동
 │   ├── kube-prometheus-values.yaml       # lite 기본
 │   ├── kube-prometheus-values-full.yaml  # full
 │   ├── loki-values.yaml           # Loki Helm values (공통)
-│   ├── otel-collector-values.yaml # 06강 로그 파일 수집, 07강부터 트레이스 추가
+│   ├── otel-collector-values.yaml # OTel Collector Helm values (공통)
 │   ├── tempo-values.yaml          # lite 기본
 │   ├── tempo-values-full.yaml     # full
 │   └── servicemonitor.yaml        # sns-app ServiceMonitor
 └── sns-app/
     ├── namespace.yaml
+    ├── secret.yaml
     ├── postgres.yaml
     ├── redis.yaml
     ├── rustfs.yaml
-    ├── recommend.yaml            # 추천 서비스 (07강)
     └── app.yaml
 ```
 
@@ -148,7 +136,7 @@ helm repo add traefik https://traefik.github.io/charts
 helm repo update
 
 helm install traefik traefik/traefik --version 41.2.0 -n traefik --create-namespace \
-  -f k8s/gateway/traefik-values.yaml
+  -f k8s/ingress/traefik-values.yaml
 ```
 
 차트가 `GatewayClass` 와 기본 `Gateway`(`traefik` 네임스페이스의 `traefik-gateway`)를
@@ -167,15 +155,13 @@ HTTPRoute 는 대상 네임스페이스가 만들어진 뒤에 적용합니다. 
 ### 4-2. 애플리케이션 배포 (02강)
 
 ```bash
-# 로컬에서 빌드한 앱 이미지를 kind 노드에 적재합니다.
-kind load docker-image springboot-sns:latest --name sns-cluster
-
 kubectl apply -f k8s/sns-app/namespace.yaml
+kubectl apply -f k8s/sns-app/secret.yaml
 kubectl apply -f k8s/sns-app/postgres.yaml \
   -f k8s/sns-app/redis.yaml \
   -f k8s/sns-app/rustfs.yaml
 kubectl apply -f k8s/sns-app/app.yaml
-kubectl apply -f k8s/gateway/sns-app.yaml
+kubectl apply -f k8s/ingress/sns-app.yaml
 ```
 
 ### 4-3. ArgoCD (04강)
@@ -212,26 +198,13 @@ helm install prometheus prometheus-community/kube-prometheus-stack --version 88.
   -f k8s/monitoring/kube-prometheus-values.yaml
 
 kubectl apply -f k8s/monitoring/servicemonitor.yaml
-kubectl apply -f k8s/gateway/monitoring.yaml
-
+kubectl apply -f k8s/monitoring/alertrules.yaml
+kubectl apply -f k8s/ingress/monitoring.yaml
 ```
 
 full 은 마지막 `-f` 뒤에 `-f k8s/monitoring/kube-prometheus-values-full.yaml` 을 추가합니다.
 
-HTTPRoute 는 대상 Service 를 만드는 강의에서 각각 추가합니다. 05강은 Grafana 와
-Prometheus 두 개이고, Loki 와 Tempo 는 06~07강에서 붙입니다.
-
-```bash
-kubectl get httproute -n monitoring
-```
-
-`Accepted` 와 `ResolvedRefs` 가 모두 True 여야 합니다.
-
-### 4-5. Loki + OTel Collector (06강)
-
-06강에서는 sns-app의 JSON 콘솔 로그를 노드 파일에서 읽어 Loki로 보냅니다.
-앱은 로그 출력, 노드별 OTel Collector는 수집과 전송을 담당해요.
-05강의 Grafana를 그대로 사용하고 Loki 데이터소스를 추가합니다.
+### 4-5. Loki + OTel Collector + Tempo (06~07강)
 
 ```bash
 helm repo add grafana https://grafana.github.io/helm-charts
@@ -244,106 +217,91 @@ helm install loki grafana/loki --version 7.3.0 -n monitoring \
 helm install otel-collector open-telemetry/opentelemetry-collector --version 0.169.0 \
   -n monitoring -f k8s/monitoring/otel-collector-values.yaml
 
-kubectl apply -f k8s/gateway/loki.yaml
-```
-
-### 4-6. Tempo + OTel Collector 확장 (07강)
-
-먼저 Go 추천 서비스를 로컬에서 빌드하고 Kind에 배포합니다. 별도 이미지 레지스트리는 필요 없어요.
-
-```bash
-docker build -t sns-recommend:latest apps/recommend
-kind load docker-image sns-recommend:latest --name sns-cluster
-kubectl apply -f k8s/sns-app/app.yaml
-kubectl apply -f k8s/sns-app/recommend.yaml
-kubectl rollout status deployment/sns-recommend -n sns --timeout=120s
-```
-
-07강에서는 Tempo를 설치하고, 06강에서 설치한 Collector에 OTLP 트레이스 수신을 추가합니다.
-앱의 트레이스는 OTLP로 보내고, 로그는 계속 파일에서 수집해요.
-`part-7-traces` 브랜치의 values 파일로 기존 Collector를 갱신하면 로그 수집을 유지하면서
-트레이스를 Tempo로 보낼 수 있어요.
-
-```bash
 helm install tempo grafana/tempo --version 1.24.4 -n monitoring \
   -f k8s/monitoring/tempo-values.yaml
+
+kubectl apply -f k8s/ingress/loki.yaml
+kubectl apply -f k8s/ingress/tempo.yaml
 ```
 
-Tempo를 full로 진행하면 위 설치 명령에 `-f k8s/monitoring/tempo-values-full.yaml`을
-추가합니다. metrics-generator가 켜져 트레이스 기반 메트릭을 추가로 생성해요.
+Tempo 를 full 로 진행하면 마지막 `-f` 뒤에 `-f k8s/monitoring/tempo-values-full.yaml` 을
+추가합니다. metrics-generator 가 켜지고 Grafana Explore Traces 를 쓸 수 있어요.
+
+### 4-6. AlertManager Slack 연동 (08강)
+
+`slack-webhook` secret 을 만든 뒤 values 를 적용하세요.
 
 ```bash
-helm upgrade otel-collector open-telemetry/opentelemetry-collector --version 0.169.0 \
-  -n monitoring -f k8s/monitoring/otel-collector-values.yaml
+kubectl create secret generic slack-webhook \
+  -n monitoring \
+  --from-literal=url='https://hooks.slack.com/services/xxx/yyy/zzz'
 
-kubectl apply -f k8s/gateway/tempo.yaml
-```
-
-### 4-7. RED 경보와 Slack 연동 (08강)
-
-`sns-app`의 08강 코드를 main에 머지하고, CI와 ArgoCD로 배포가 완료되면 진행해요.
-Slack 앱의 Incoming Webhooks에서 알림 채널을 선택하고 URL을 발급합니다. URL은 Git에 저장하지 않아요.
-
-```bash
-# sns-devops 폴더에서 최초 1회 등록
-kubectl create secret generic slack-webhook -n monitoring \
-  --from-literal=url='실제_WEBHOOK_URL'
-
-# Slack 설정 적용
 helm upgrade prometheus prometheus-community/kube-prometheus-stack --version 88.3.0 \
   -n monitoring --reuse-values -f k8s/monitoring/alertmanager-values.yaml
-
-# 경보 규칙 적용
-kubectl apply -f k8s/monitoring/alertrules.yaml
 ```
 
-**재현:** `sns-app` 폴더에서 아래 명령을 하나씩 실행합니다. 각 명령은 준비 30초, 재현 3분, 복구 3분 순서예요.
+## 5) 접속 URL
 
-```bash
-./scripts/part-8/run.sh rate     # 초당 요청량 5건 초과
-./scripts/part-8/run.sh error    # 5xx 비율 10% 초과
-./scripts/part-8/run.sh latency  # p95 응답 시간 1초 초과
+- SNS App: `http://sns.localhost`
+- ArgoCD: `http://argocd.localhost`
+- Grafana: `http://grafana.localhost`
+- Prometheus: `http://prometheus.localhost`
+- Loki: `http://loki.localhost`
+- Tempo: `http://tempo.localhost`
+
+## 6) 검증 체크리스트
+
+1. `kubectl get nodes` -> 모두 `Ready`
+2. `kubectl get pods -A` -> 주요 Pod `Running`
+3. `curl http://sns.localhost/actuator/health` -> `UP`
+4. Grafana Explore에서 Loki 로그 조회 가능
+5. Grafana Explore에서 Tempo trace 조회 가능
+
+## 7) 자주 막히는 문제
+
+- `*.localhost` 접속 안 됨
+  - Traefik 이 아직 준비 중일 수 있음 (`kubectl get pods -n traefik`)
+  - `Gateway` 상태 확인 (`kubectl get gateway -n traefik`, `PROGRAMMED=True` 여야 함)
+  - `HTTPRoute` 상태 확인 (`kubectl describe httproute <이름> -n <네임스페이스>`,
+    `Accepted` 와 `ResolvedRefs` 가 모두 True 여야 함)
+  - 로컬 DNS/hosts 문제 시 `curl -H "Host: sns.localhost" http://127.0.0.1`
+- `no matches for kind "HTTPRoute"` 오류
+  - Gateway API CRD 미설치. 4-1 의 `kubectl apply` 를 먼저 실행하세요.
+- ArgoCD 동기화 안 됨
+  - `kubectl get applications -n argocd`
+  - `repoURL/path` 오타 확인 (`k8s/argocd/application.yaml`)
+- Prometheus가 `sns-app` 메트릭 미수집
+  - `k8s/monitoring/servicemonitor.yaml` 적용 여부 확인
+  - Helm 설치 시 `-f k8s/monitoring/kube-prometheus-values.yaml` 누락 여부 확인
+- 로그가 중복 수집됨
+  - `k8s/monitoring/otel-collector-values.yaml`의 file_log `exclude` 확인
+
+## 8) 학습용 vs 실무용
+
+이 저장소의 기본 설정은 학습/데모 최적화입니다.
+
+- 학습용: 단일 바이너리 Loki/Tempo, 로컬 스토리지, 단순 secret
+- 실무용: object storage, 백업/보존 정책, 외부 secret manager, TLS/mTLS, RBAC 최소권한
+
+### Gateway 의 라우트 허용 범위
+
+`traefik-values.yaml` 의 리스너는 `namespacePolicy.from: All` 입니다.
+어느 네임스페이스에서든 이 Gateway 에 HTTPRoute 를 붙일 수 있다는 뜻이에요.
+실습에서 `sns`, `rustfs`, `monitoring`, `argocd` 네 곳의 라우트를 추가 설정 없이
+붙이려고 이렇게 두었습니다.
+
+혼자 쓰는 로컬 클러스터라 문제가 없지만, 여러 팀이 함께 쓰는 클러스터라면
+다른 팀이 우리 호스트명을 선점할 수 있습니다. 실무에서는 범위를 좁히세요.
+
+```yaml
+gateway:
+  listeners:
+    web:
+      namespacePolicy:
+        from: Selector
+        selector:
+          matchLabels:
+            gateway-access: "true"
 ```
 
-최근 2분의 값이 기준을 30초 넘으면 경보가 발생합니다. Prometheus Alerts와 Slack에서 발생과 해소를 확인한 뒤 다음 명령을 실행해요.
-
-### 4-8. AI Agent로 장애 분석 (09강)
-
-09강 앱을 main에 머지하고 CI와 ArgoCD로 배포합니다. 추천 서비스와 메트릭, 로그, 트레이스 수집이 준비되어 있어야 해요.
-`sns-devops`에는 09강의 `skills/obsctl`과 장애 분석 스킬을 준비합니다. 추가 Helm 설치는 없으며, 기존 배포 상태를 확인해요.
-
-```bash
-kubectl rollout status deployment/sns-app -n sns --timeout=180s
-kubectl rollout status deployment/sns-recommend -n sns --timeout=120s
-kubectl get pods -n monitoring
-```
-
-```bash
-# sns-app 폴더: 장애 분석용 요청 60회
-./scripts/part-9/run.sh 60
-
-# sns-devops 폴더: 최근 30분의 관측 데이터 조회
-./scripts/part-9/run.sh 30
-```
-
-AI Agent에 아래와 같이 요청해요.
-
-> sns-app의 최근 30분 오류 원인을 메트릭, 로그, 트레이스로 조사하고 근거와 대응안을 알려줘. 코드 수정과 배포는 하지 마.
-
-오류가 발생하는 요청 조건과 실패한 호출 구간을 확인합니다.
-
-## 5) 접속과 상태 확인
-
-| 서비스 | 주소 |
-| --- | --- |
-| SNS App | http://sns.localhost |
-| ArgoCD | http://argocd.localhost |
-| Grafana | http://grafana.localhost |
-| Prometheus Alerts | http://prometheus.localhost/alerts |
-
-```bash
-kubectl get pods -A
-curl -f http://sns.localhost/actuator/health
-```
-
-Pod가 준비되고 앱이 `UP`인지 확인해요. 접속이 안 되면 `kubectl get httproute -A`로 경로 상태를 확인합니다.
+이렇게 두면 `gateway-access=true` 라벨이 붙은 네임스페이스만 라우트를 붙일 수 있어요.
