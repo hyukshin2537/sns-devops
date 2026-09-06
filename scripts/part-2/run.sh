@@ -1,20 +1,9 @@
 #!/usr/bin/env bash
 # Phase 2. kind 배포
-# scripts/part-2 폴더에서 실행: ./run.sh [lite|full]   (기본 lite)
+# 사용법: scripts/part-2/run.sh [lite|full]   (기본 lite)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-source scripts/common.sh
-require_files k8s/kind/kind-config.yaml \
-    k8s/gateway/traefik-values.yaml \
-    k8s/sns-app/namespace.yaml \
-    k8s/sns-app/postgres.yaml \
-    k8s/sns-app/redis.yaml \
-    k8s/sns-app/rustfs.yaml \
-    k8s/sns-app/app.yaml \
-    k8s/gateway/sns-app.yaml
 PROFILE="${1:-lite}"
-require_profile "$PROFILE"
-if [ "$PROFILE" = full ]; then require_files k8s/kind/kind-config-full.yaml; fi
 CLUSTER=sns-cluster
 
 # 윈도우는 *.localhost 를 자동으로 127.0.0.1 로 풀지 않습니다. 안 될 때 안내할 위치를 고릅니다.
@@ -29,7 +18,7 @@ hosts_hint() {
 
 if ! docker image inspect springboot-sns:latest >/dev/null 2>&1; then
     echo "springboot-sns:latest 이미지가 없습니다." >&2
-    echo "먼저 sns-app/scripts/part-2 폴더에서 ./run.sh를 실행하세요." >&2
+    echo "먼저 sns-app 에서 실행하세요: git -C ../sns-app checkout part-2-kind-deployment && (cd ../sns-app && ./run.sh)" >&2
     exit 1
 fi
 
@@ -57,15 +46,16 @@ helm repo add traefik https://traefik.github.io/charts >/dev/null 2>&1 || true
 helm repo update traefik >/dev/null
 helm upgrade --install traefik traefik/traefik --version 41.2.0 \
     --namespace traefik --create-namespace \
-    --values k8s/gateway/traefik-values.yaml
+    --values k8s/ingress/traefik-values.yaml
 
 echo "==> 매니페스트 적용"
 kubectl apply -f k8s/sns-app/namespace.yaml
+kubectl apply -f k8s/sns-app/secret.yaml
 kubectl apply -f k8s/sns-app/postgres.yaml \
     -f k8s/sns-app/redis.yaml \
     -f k8s/sns-app/rustfs.yaml
 kubectl apply -f k8s/sns-app/app.yaml
-kubectl apply -f k8s/gateway/sns-app.yaml
+kubectl apply -f k8s/ingress/sns-app.yaml
 
 echo "==> 롤아웃 대기"
 kubectl rollout status deployment/sns-app -n sns --timeout=300s
