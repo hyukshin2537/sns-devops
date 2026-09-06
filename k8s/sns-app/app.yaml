@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: sns-app
-          image: ghcr.io/hyukshin2537/sns-app:708c749
+          image: springboot-sns:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 8080
