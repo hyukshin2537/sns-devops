@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 # Phase 3. CI/CD
-# scripts/part-3 폴더에서 실행: ./run.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-source scripts/common.sh
-require_files k8s/sns-app/app.yaml
 
 echo "==> 원격에서 최신 매니페스트 가져오기"
 git pull --ff-only
