@@ -2,6 +2,7 @@
 
 ## SNS App RED
 
+[sns-app-red.json](./sns-app-red.json)은 요청량(req/s), 5xx 오류율(%), 평균 응답 시간(ms)을 보여줍니다. 최근 5분 기준이며 `/actuator/health` 요청만 제외해요.
 
 Grafana **Dashboards → New → Import**에서 JSON을 업로드하고 Prometheus 데이터소스를 선택하세요.
 
