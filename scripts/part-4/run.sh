@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 # Phase 4. GitOps 와 ArgoCD
-# scripts/part-4 폴더에서 실행: ./run.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-source scripts/common.sh
-require_files k8s/argocd/argocd-values.yaml \
-    k8s/argocd/application.yaml
 
 echo "==> ArgoCD 설치"
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
